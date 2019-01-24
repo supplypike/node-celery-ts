@@ -44,8 +44,7 @@ import * as IoRedis from "ioredis";
  */
 export class RedisBackend implements ResultBackend {
     private static readonly TIMEOUT: number = 86400000;
-    private static readonly UUID_REGEX: RegExp = // tslint:disable:max-line-length
-        /^celery-task-meta-([A-Fa-f\d]{8}-[A-Fa-f\d]{4}-[A-Fa-f\d]{4}-[A-Fa-f\d]{4}-[A-Fa-f\d]{12})$/;
+    private static readonly UUID_REGEX: RegExp = /^celery-task-meta-(.*)$/;
     private static readonly UUID_INDEX: number = 1;
 
     private readonly options: RedisOptions;
