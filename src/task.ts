@@ -138,6 +138,7 @@ export class Task<T> {
         priority = 0,
         queue = this.queue,
         serializer = Packer.Serializer.Json,
+        id = Uuid.v4()
     }: TaskApplyOptions): Result<T> {
         const backend = (() => {
             if (ignoreResult) {
@@ -147,7 +148,6 @@ export class Task<T> {
             return this.backend;
         })();
 
-        const id = Uuid.v4();
         const result = new Result<T>(id, backend);
 
         const [packer, encoding] = Task.createPacker(serializer, compression);
@@ -457,6 +457,7 @@ export interface TaskApplyOptions {
     priority?: Priority;
     queue?: string;
     serializer?: Packer.Serializer;
+    id?: string;
 }
 
 export type Args = Array<any>;
