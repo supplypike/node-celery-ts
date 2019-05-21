@@ -1,6 +1,6 @@
 {
     "name": "@casestack/celery-ts",
-    "version": "0.0.1",
+    "version": "0.0.2",
     "description": "TypeScript Celery client for Node",
     "keywords": [
         "amqp",

@@ -57,7 +57,7 @@ import * as Uuid from "uuid";
 export const createClient = ({ brokerUrl, resultBackend, taskDefaults = {} }: {
     brokerUrl: string | Array<string>;
     resultBackend?: string;
-    taskDefaults: any;
+    taskDefaults?: any;
 }): Client => {
     const id = Uuid.v4();
 
