@@ -54,9 +54,10 @@ import * as Uuid from "uuid";
  * @see createBackend
  * @see createBroker
  */
-export const createClient = ({ brokerUrl, resultBackend }: {
+export const createClient = ({ brokerUrl, resultBackend, taskDefaults = {} }: {
     brokerUrl: string | Array<string>;
     resultBackend?: string;
+    taskDefaults: any;
 }): Client => {
     const id = Uuid.v4();
 
@@ -80,6 +81,7 @@ export const createClient = ({ brokerUrl, resultBackend }: {
         backend,
         brokers,
         id,
+        taskDefaults,
     });
 };
 
