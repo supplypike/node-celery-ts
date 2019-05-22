@@ -53,6 +53,7 @@ export class RpcBackend implements ResultBackend {
     private readonly options: AmqpOptions;
     private promises: PromiseMap<string, Message>;
     private readonly routingKey: string;
+    private onMessageCallback: ((message: Message) => void) | null = null;
 
     /**
      * Constructs an RpcBackend with the given routing key and options.
@@ -181,6 +182,10 @@ export class RpcBackend implements ResultBackend {
         throw new UnimplementedError("Celery.Amqp.Backend.RpcBackend.uri");
     }
 
+    public onMessage(callback: (message: Message) => void) {
+        this.onMessageCallback = callback;
+    }
+
     /**
      * Converts a message, assumed to be UTF-8 encoded, into an object
      * representation.
@@ -270,7 +275,7 @@ export class RpcBackend implements ResultBackend {
     private async createConsumer(consumer: AmqpLib.Channel): Promise<string> {
         const reply = await consumer.consume(
             this.routingKey,
-            (message) => this.onMessage(message),
+            (message) => this.doOnMessage(message),
             { noAck: true },
         );
 
@@ -284,11 +289,14 @@ export class RpcBackend implements ResultBackend {
      * @param maybeMessage A message received from RabbitMQ. Will be null
      *                     if the consumer is cancelled.
      */
-    private onMessage(maybeMessage?: Message | null): void {
+    private doOnMessage(maybeMessage?: Message | null): void {
         if (isNullOrUndefined(maybeMessage)) {
             this.promises.rejectAll(new Error("RabbitMQ cancelled consumer"));
-
             return;
+        }
+
+        if (this.onMessageCallback) {
+            this.onMessageCallback(maybeMessage);
         }
 
         const message = maybeMessage;
