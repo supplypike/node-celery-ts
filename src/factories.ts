@@ -54,19 +54,18 @@ import * as Uuid from "uuid";
  * @see createBackend
  * @see createBroker
  */
-export const createClient = ({ brokerUrl, resultBackend, taskDefaults = {} }: {
+export const createClient = ({ brokerUrl, resultBackend, taskDefaults = {}, backendQueue = Uuid.v4() }: {
     brokerUrl: string | Array<string>;
     resultBackend?: string;
     taskDefaults?: any;
+    backendQueue?: string;
 }): Client => {
-    const id = Uuid.v4();
-
     const backend = (() => {
         if (isNullOrUndefined(resultBackend)) {
             return new NullBackend();
         }
 
-        return createBackend(id, resultBackend);
+        return createBackend(backendQueue, resultBackend);
     })();
 
     const brokers = (() => {
@@ -80,7 +79,7 @@ export const createClient = ({ brokerUrl, resultBackend, taskDefaults = {} }: {
     return new Client({
         backend,
         brokers,
-        id,
+        id: backendQueue,
         taskDefaults,
     });
 };
