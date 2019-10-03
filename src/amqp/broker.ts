@@ -38,14 +38,27 @@ import { isNullOrUndefined, promisifyEvent } from "../utility";
 
 import * as AmqpLib from "amqplib";
 
+const logger = {
+    info: (m: any) => {
+        console.log('[AmqpBroker]', m);
+    },
+    error: (m: any) => {
+        console.error('[AmqpBroker]', m);
+    }
+};
+
 /**
  * `AmqpBroker` implements `MessageBroker` using the `RabbitMQ` message broker.
  * Messages are, by default, durable, and will survive a broker restart.
  */
 export class AmqpBroker implements MessageBroker {
+    static BACKOFF_ADD = 2;
+    static BACKOFF_MAX = 30;
+
     private channels: ResourcePool<AmqpLib.Channel>;
-    private readonly connection: Promise<AmqpLib.Connection>;
-    private readonly options: AmqpOptions;
+    private connection: Promise<AmqpLib.Connection>;
+    private options: AmqpOptions;
+    private backoff = 0;
 
     /**
      * Constructs an `AmqpBroker` with the given options.
@@ -59,25 +72,53 @@ export class AmqpBroker implements MessageBroker {
             if (isNullOrUndefined(options)) {
                 return DEFAULT_AMQP_OPTIONS;
             }
-
             return options;
         })();
+        const { connection, channels } = this.connect();
+        this.connection = connection;
+        this.channels = channels;
+    }
 
-        this.connection = Promise.resolve(AmqpLib.connect(this.options));
+    private reconnect() {
+        if (this.backoff < AmqpBroker.BACKOFF_MAX) {
+            this.backoff += AmqpBroker.BACKOFF_ADD;
+        }
+        logger.info(`Trying again in ${this.backoff} seconds...`);
+        setTimeout(() => {
+            const { connection, channels } = this.connect();
+            this.connection = connection;
+            this.channels = channels;
+        }, this.backoff * 1000);
+    }
 
-        this.channels = new ResourcePool(
+    private connect() {
+        const connection = Promise.resolve(AmqpLib.connect(this.options));
+        connection.then(conn => {
+            logger.info(`Connected to ${this.options.hostname}`);
+            this.backoff = 0;
+            conn.on('close', () => {
+                logger.error('Connection dropped!');
+                this.reconnect();
+            });
+            conn.on('error', (err) => {
+                logger.error(`Connection failure! Waiting on restart. ${err}`);
+            });
+        }, err => {
+            logger.error(`Connection failed: ${err}`);
+            this.reconnect();
+        });
+        const channels = new ResourcePool(
             async () => {
-                const connection = await this.connection;
-
-                return connection.createChannel();
+                const conn = await connection;
+                return conn.createChannel();
             },
-            async (channel) => {
+            async channel => {
                 await channel.close();
-
                 return "closed";
             },
             2,
         );
+        return { connection, channels };
     }
 
     /**
@@ -120,7 +161,6 @@ export class AmqpBroker implements MessageBroker {
 
         return this.channels.use(async (channel) => {
             await AmqpBroker.assert({ channel, exchange, routingKey });
-
             return AmqpBroker.doPublish({
                 body,
                 channel,

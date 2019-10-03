@@ -42,18 +42,31 @@ import {
 
 import * as AmqpLib from "amqplib";
 
+const logger = {
+    info: (m: any) => {
+        console.log('[RpcBackend]', m);
+    },
+    error: (m: any) => {
+        console.error('[RpcBackend]', m);
+    }
+};
+
 /**
  * RabbitMQ result backend using RPC and one queue per client.
  */
 export class RpcBackend implements ResultBackend {
-    private readonly channels: ResourcePool<AmqpLib.Channel>;
-    private readonly connection: Promise<AmqpLib.Connection>;
-    private readonly consumer: Promise<AmqpLib.Channel>;
-    private readonly consumerTag: Promise<string>;
+    static BACKOFF_ADD = 2;
+    static BACKOFF_MAX = 30;
+
+    private channels: ResourcePool<AmqpLib.Channel>;
+    private connection: Promise<AmqpLib.Connection>;
+    private consumer: Promise<AmqpLib.Channel>;
+    private consumerTag: Promise<string>;
     private readonly options: AmqpOptions;
     private promises: PromiseMap<string, Message>;
     private readonly routingKey: string;
     private onMessageCallback: ((message: Message) => void) | null = null;
+    private backoff = 0;
 
     /**
      * Constructs an RpcBackend with the given routing key and options.
@@ -77,22 +90,63 @@ export class RpcBackend implements ResultBackend {
         this.promises = new PromiseMap<string, Message>(DEFAULT_TIMEOUT);
         this.routingKey = routingKey;
 
-        this.connection = Promise.resolve(AmqpLib.connect(this.options));
+        const { connection, channels, consumer, consumerTag } = this.connect();
+        this.connection = connection;
+        this.channels = channels;
+        this.consumer = consumer;
+        this.consumerTag = consumerTag;
+    }
 
-        this.channels = new ResourcePool<AmqpLib.Channel>(
-            () => this.connection.then((connection) =>
-                connection.createChannel()
-            ),
-            (channel) => Promise.resolve(channel.close()).then(() => "closed"),
+    private reconnect() {
+        if (this.backoff < RpcBackend.BACKOFF_MAX) {
+            this.backoff += RpcBackend.BACKOFF_ADD;
+        }
+        logger.info(`Trying again in ${this.backoff} seconds...`);
+        setTimeout(() => {
+            const { connection, channels, consumer, consumerTag } = this.connect();
+            this.connection = connection;
+            this.channels = channels;
+            this.consumer = consumer;
+            this.consumerTag = consumerTag;
+        }, this.backoff * 1000);
+    }
+
+    private connect() {
+        const connection = Promise.resolve(AmqpLib.connect(this.options));
+        connection.then(conn => {
+            logger.info(`Connected to ${this.options.hostname}`);
+            this.backoff = 0;
+            conn.on('close', () => {
+                logger.error('Connection dropped!');
+                this.reconnect();
+            });
+            conn.on('error', (err) => {
+                logger.error(`Connection failure! Waiting on restart. ${err}`);
+            });
+        }, err => {
+            logger.error(`Connection failed: ${err}`);
+            this.reconnect();
+        });
+        const channels = new ResourcePool(
+            async () => {
+                const conn = await connection;
+                return conn.createChannel();
+            },
+            async channel => {
+                await channel.close();
+                return "closed";
+            },
             2,
         );
-
-        this.consumer = this.channels.get();
-
-        this.consumerTag = this.consumer.then((consumer) =>
-            this.assertQueue(consumer)
-                .then(() => this.createConsumer(consumer))
+        const consumer = channels.get();
+        const consumerTag = consumer.then(consumer =>
+            this.assertQueue(consumer).then(
+                () => this.createConsumer(consumer),
+                _ => ''
+            ),
+            _ => ''
         );
+        return { connection, channels, consumer, consumerTag };
     }
 
     /**
