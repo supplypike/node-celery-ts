@@ -291,7 +291,6 @@ export class RpcBackend implements ResultBackend {
             autoDelete: false,
             durable: false,
             expires: 86400000, // 1 day in ms
-            messageTtl: 3600 * 1000,
         });
     }
 
