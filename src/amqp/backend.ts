@@ -291,6 +291,7 @@ export class RpcBackend implements ResultBackend {
             autoDelete: false,
             durable: false,
             expires: 86400000, // 1 day in ms
+            messageTtl: 3600 * 1000,
         });
     }
 
@@ -329,8 +330,7 @@ export class RpcBackend implements ResultBackend {
     private async createConsumer(consumer: AmqpLib.Channel): Promise<string> {
         const reply = await consumer.consume(
             this.routingKey,
-            (message) => this.doOnMessage(message),
-            { noAck: true },
+            (message) => this.doOnMessage(consumer, message),
         );
 
         return reply.consumerTag;
@@ -343,18 +343,24 @@ export class RpcBackend implements ResultBackend {
      * @param maybeMessage A message received from RabbitMQ. Will be null
      *                     if the consumer is cancelled.
      */
-    private doOnMessage(maybeMessage?: Message | null): void {
+    private doOnMessage(consumer: AmqpLib.Channel, maybeMessage?: Message | null): void {
         if (isNullOrUndefined(maybeMessage)) {
             this.promises.rejectAll(new Error("RabbitMQ cancelled consumer"));
             return;
         }
 
-        if (this.onMessageCallback) {
-            this.onMessageCallback(maybeMessage);
-        }
-
         const message = maybeMessage;
         const id = message.properties.correlationId;
+
+        if(this.promises.has(id)) {
+            consumer.ack(message as AmqpLib.Message);
+        } else {
+            consumer.nack(message as AmqpLib.Message);
+        }
+
+        if (this.onMessageCallback) {
+            this.onMessageCallback(message);
+        }
 
         this.promises.resolve(id, message);
     }
